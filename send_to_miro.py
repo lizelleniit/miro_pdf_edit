@@ -7,7 +7,6 @@ import urllib3
 import os
 from os.path import exists
 import re
-import config
 from collections import namedtuple
 import math
 
@@ -63,7 +62,7 @@ def is_object_on_board(board_id,miro_authorisation,info_tuple):
                   cursor=""
                   while True:
                         # miro-enforced limit is 50
-                        url = "https://api.miro.com/v2/boards/"+str(config.board_id)+"/items?limit=50&cursor="+cursor 
+                        url = "https://api.miro.com/v2/boards/"+str(board_id)+"/items?limit=50&cursor="+cursor 
                         response_item_list = requests.get(url, headers=headers)
                         for item in response_item_list.json()['data']:
                               ids_on_board.append(item['id'])
@@ -84,36 +83,30 @@ def is_object_on_board(board_id,miro_authorisation,info_tuple):
       return exists
 
 
-def make_or_update_miro(headers,payload,obj_data,object_name,make_new=False):
+def make_or_update_miro(board_id,miro_authorisation,headers,payload,obj_data,object_name,make_new=False):
       info_tuple=obj_data[object_name]
-      exists = is_object_on_board(config.board_id,config.miro_authorisation,info_tuple)
+      exists = is_object_on_board(board_id,miro_authorisation,info_tuple)
       if exists == False:
-            url = "https://api.miro.com/v2/boards/"+str(config.board_id)+"/"+obj_data[object_name]['obj_type']
+            url = "https://api.miro.com/v2/boards/"+str(board_id)+"/"+obj_data[object_name]['obj_type']
             response = requests.post(url, json=payload, headers=headers)
             
             
             info_tuple['miro_id']=response.json()['id']
       elif exists==True:
             miro_id = info_tuple['miro_id']
-            url = "https://api.miro.com/v2/boards/"+str(config.board_id)+"/"+obj_data[object_name]['obj_type']+"/"+str(miro_id)
+            url = "https://api.miro.com/v2/boards/"+str(board_id)+"/"+obj_data[object_name]['obj_type']+"/"+str(miro_id)
             response = requests.patch(url, json=payload, headers=headers)           
       obj_data[object_name]=info_tuple
 
       return obj_data
 
-def make_or_update_frame_miro(obj_data,frame_name,miro_authorisation,position,size,make_new=False):
-
-      
+def make_or_update_frame_miro(board_id,miro_authorisation,obj_data,frame_name,position,size,make_new=False):
       if frame_name in obj_data.keys():
             print(f"Frame {frame_name} exists in obj_data dict.")
-
-            
-            
-            
       else:
             print(f"Frame {frame_name} does not exist in obj_data dict. We need to add the frame to the dict first.")
             
-            obj_data[frame_name]={'name':frame_name,'board_id': config.board_id,'children':[],'miro_id':None,'position':position,'size':size,'style':None,'obj_type':'frames'}
+            obj_data[frame_name]={'name':frame_name,'board_id': board_id,'children':[],'miro_id':None,'position':position,'size':size,'style':None,'obj_type':'frames'}
 
       info_tuple = obj_data[frame_name]
       headers = {
@@ -144,16 +137,16 @@ def make_or_update_frame_miro(obj_data,frame_name,miro_authorisation,position,si
       
       # we now know the frame is recorded in obj_data, but is it on miro? 
       
-      obj_data = make_or_update_miro(headers,payload,obj_data,frame_name,make_new=make_new)  
+      obj_data = make_or_update_miro(board_id,miro_authorisation,headers,payload,obj_data,frame_name,make_new=make_new)  
       
       return obj_data
 
 
-def upload_img_miro(file_path,board_id,parent,position=None,size=None):
-      url='https://api.miro.com/v2/boards/'+str(config.board_id)+'/images' 
+def upload_img_miro(board_id,miro_authorisation,file_path,parent,position=None,size=None):
+      url='https://api.miro.com/v2/boards/'+str(board_id)+'/images' 
       
       headers = {
-                        "Authorization": "Bearer "+config.miro_authorisation
+                        "Authorization": "Bearer "+miro_authorisation
                   }
       payload={}
       payload['parent']=parent
@@ -181,16 +174,12 @@ def upload_img_miro(file_path,board_id,parent,position=None,size=None):
       
       return item_id
 
-def update_img_miro(file_path,board_id,parent,item_id,size=None,position=None):
+def update_img_miro(board_id,miro_authorisation,file_path,parent,item_id,size=None,position=None):
       url = "https://api.miro.com/v2/boards/"+str(board_id)+"/images/"+str(item_id)
       
       payload={}
       payload["parent"]=parent
-      payload["data"] = {
-                                    "title": "randomtitle",
-                                    "url": file_path
-                                    }
-            
+      
       payload["position"] = {
                               "origin": "center",
                               "x": position[0],
@@ -202,70 +191,45 @@ def update_img_miro(file_path,board_id,parent,item_id,size=None,position=None):
             }
 
       headers = {
-            "Accept": "application/json",
-            "Content-Type": "application/json",
             "Authorization": "Bearer "+miro_authorisation
       }
+      imageFile = {'resource': (file_path, open(file_path, 'rb'), 'image/jpg'),'data': (None, json.dumps(payload), 'application/json')}
 
-      response = requests.patch(url, json=payload, headers=headers)
-      
-      
-def make_or_update_img_miro(file_path,board_id,parent,object_name,obj_data,position,size):
-      #print('Creating or updating figure',fig_name)
+      response = requests.patch(url, headers=headers, files=imageFile)
+
+      #response = requests.patch(url, json=payload, headers=headers)
+      return
+
+def get_parent_for_miro(obj_data,parent_name):
+      return {'id': obj_data[parent_name]['miro_id']}
+
+def make_or_update_img_miro(board_id,miro_authorisation,file_path,parent,object_name,obj_data,position,size):
+      if object_name in obj_data.keys():
+            print(f"Frame {object_name} exists in obj_data dict.")
+      else:
+            print(f"Frame {object_name} does not exist in obj_data dict. We need to add the frame to the dict first.")
+            
+            obj_data[object_name]={'name':object_name,'board_id': board_id,'children':[],'miro_id':None,'position':position,'size':size,'style':None,'obj_type':'images'}
+            obj_data[parent]['children'].append(object_name)
+
       info_tuple = obj_data[object_name]
       exists = is_object_on_board(board_id,miro_authorisation,info_tuple)
       if exists==False:
-            miro_id = upload_img_miro(file_path,board_id,parent,position=position,size=size)
-            if object_name not in obj_data.keys():
-                  obj_data[object_name]={}
+            print(obj_data[parent]['miro_id'])
+            print(type(obj_data[parent]['miro_id']))
+            miro_id = upload_img_miro(board_id,miro_authorisation,file_path,get_parent_for_miro(obj_data,parent),position=position,size=size)
+            
             obj_data[object_name]['miro_id']=miro_id
       elif exists==True:
             
                         
             miro_id = obj_data[object_name]['miro_id']
 
-            update_img_miro(file_path,board_id,parent,miro_id,size=size,position=position)
+            update_img_miro(board_id,miro_authorisation,file_path,get_parent_for_miro(obj_data,parent),miro_id,size=size,position=position)
 
       return obj_data
 
-def make_or_update_frame_miro(obj_data,frame_name):
-      info_dict = obj_data['frames'][frame_name]
-
-      headers = {
-                  "Accept": "*/*",
-                  "Content-Type": "application/json",
-                  "Authorization": "Bearer "+miro_authorisation
-      }
-      payload = {
-                  "data": {
-                        "format": "custom",
-                        "title": frame_name,
-                        "type": "freeform"
-                  },
-                  "position": {
-                        "origin": "center",
-                        "x": info_dict[position][0],
-                        "y": info_dict[position][1]
-                  },
-                  "geometry": {
-                        "width": info_dict[size][0],
-                        "height": info_dict[size][1]
-                  },
-                  'style': {
-                        'fillColor': '#FFFFFF',
-
-                  }
-            }
-            
-      obj_data = make_or_update_miro(headers,payload,'frames',obj_data,frame_name)  
-            
-      
-      return frame_dict
-
-
-
-
-def send_to_miro(starting_pos, size, space, base_name):
+def send_to_miro(board_id,miro_authorisation,starting_pos, size, space, base_name):
       files = os.listdir()
       img_list=[]
       frame_list=[]
@@ -287,26 +251,22 @@ def send_to_miro(starting_pos, size, space, base_name):
 
 
 
-      """if 'frames' in obj_data.keys():
-            pass
-      else:
-            obj_data['frames']={}
-      if 'images' in obj_data.keys():
-            pass
-      else:
-            obj_data['images']={}
-      """
+      
       position = starting_pos.copy()
       
       for frame_name in frame_list:
-            obj_data = make_or_update_frame_miro(obj_data,frame_name,config.miro_authorisation,position,size,make_new=False)
+            obj_data = make_or_update_frame_miro(board_id,miro_authorisation,obj_data,frame_name,position,size,make_new=False)
             
             position = [position[0] + space + size[0],position[1]] # position[0] = position[0] + space + size[0] let to some weird results 
             
 
-      #for img in img_list:
-      #      upload_img_miro(img,config.config.board_id,None,position=[0,0],size=[1000,1000])
-
+      for img in img_list:
+            #upload_img_miro(img,board_id,None,position=[0,0],size=[1000,1000])
+            parent = 'frame_'+img[:-4]
+            object_name = 'img_'+img[:-4]
+            img_pos=[size[0]/2,size[1]/2]
+            size=size
+            obj_data = make_or_update_img_miro(board_id,miro_authorisation,img,parent,object_name,obj_data,img_pos,size)
 
       # save updated obj_data to a json file for next time
       with open('obj_data.json', 'w') as handle:
